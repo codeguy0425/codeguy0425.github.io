@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我用 Hermes Agent 整咗個每日笑話 WhatsApp Cron Job</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", "PingFang HK", "Microsoft JhengHei", sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    line-height: 1.8;
+    padding: 0;
+  }
+  .container {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 60px 24px 100px;
+  }
+  h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+    margin-bottom: 12px;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .meta {
+    color: #64748b;
+    font-size: 0.875rem;
+    margin-bottom: 40px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #1e293b;
+  }
+  .meta span {
+    display: inline-block;
+    background: #1e293b;
+    color: #94a3b8;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    margin-right: 6px;
+  }
+  h2 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin: 40px 0 16px;
+    color: #f8fafc;
+    padding-left: 12px;
+    border-left: 3px solid #f59e0b;
+  }
+  p { margin: 0 0 16px; color: #cbd5e1; }
+  strong { color: #f1f5f9; }
+  code {
+    background: #1e293b;
+    color: #fbbf24;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-size: 0.85em;
+  }
+  pre {
+    background: #0c1929;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 20px;
+    overflow-x: auto;
+    margin: 20px 0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    color: #e2e8f0;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #1e293b;
+    margin: 40px 0;
+  }
+  blockquote {
+    background: #1e293b;
+    border-left: 3px solid #f59e0b;
+    padding: 16px 20px;
+    margin: 20px 0;
+    border-radius: 0 8px 8px 0;
+    color: #94a3b8;
+    font-size: 0.95rem;
+  }
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 24px;
+  }
+  .tag {
+    background: #1e293b;
+    color: #94a3b8;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+  }
+  ul, ol { margin: 0 0 16px 24px; color: #cbd5e1; }
+  li { margin-bottom: 6px; }
+  .footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid #1e293b;
+    text-align: center;
+    color: #475569;
+    font-size: 0.85rem;
+    font-style: italic;
+  }
+  @media (max-width: 600px) {
+    .container { padding: 32px 16px 60px; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.15rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>我用 Hermes Agent 整咗個每日笑話 WhatsApp Cron Job — 成個過程係咁</h1>
+
+<div class="meta">
+  2026-06-10 &nbsp;·&nbsp; <span>HermesAgent</span><span>WhatsApp</span><span>CronJob</span><span>AI</span><span>Automation</span>
+</div>
+
+<h2>前言：點解要整呢個 Project？</h2>
+
+<p>身為一個成日玩 AI Agent 嘅人，我一直想將啲 automation 融入日常生活。其中一個諗法係：<strong>每日自動 send 一個笑話俾屋企人</strong>，等大家起身或者食飯前後有個好笑嘅嘢睇下。</p>
+
+<p>呢個 project 用咗 <strong>Hermes Agent</strong> 嘅 cron system + <strong>wacli</strong>（WhatsApp CLI）嚟實現，成個過程學到好多嘢，由最初嘅 concept 到而家穩定運行，中間仲撞過唔少壁。</p>
+
+<hr>
+
+<h2>系統架構</h2>
+
+<p>整個系統分三層：</p>
+
+<pre><code>[LLM Agent]  →  Cron Scheduler  →  WhatsApp
+ big-pickle       Hermes           wacli
+ joke-master    每日 9pm HKT      自己 + 老婆
+  profile</code></pre>
+
+<ul>
+  <li><strong>LLM Agent</strong>：用 <code>big-pickle</code> model + <code>joke-master</code> profile，扮演「笑話大師」角色</li>
+  <li><strong>Cron Scheduler</strong>：Hermes 內置嘅 cron system，每日自動觸發一次</li>
+  <li><strong>wacli</strong>：WhatsWeb 嘅 CLI 工具，負責 send 訊息</li>
+</ul>
+
+<hr>
+
+<h2>Profile 設計：笑話大師（Joke Master）</h2>
+
+<p>每個 Hermes profile 都有一份 <code>SOUL.md</code> 定義 AI 嘅 personality：</p>
+
+<pre><code>You are 笑話大師 (Joke Master) — a hilarious Cantonese comedian who
+creates original, family-friendly jokes in Traditional Chinese.
+
+Your purpose:
+- Generate creative, original daily jokes for family
+- Each joke should be unique — never repeat a punchline
+- Hong Kong Cantonese style (口語廣東話 is best)
+- Short, punchy, laugh-out-loud funny
+
+Your style: playful, witty, 食字/諧音 jokes, everyday situations,
+married couple banter.</code></pre>
+
+<p>呢個設計令每次 cron job 執行時，個 agent 都有一個 consistent 嘅 personality，唔會亂嚟。</p>
+
+<hr>
+
+<h2>Skills 層：domain knowledge</h2>
+
+<p>另外有一個 <code>daily-joke</code> skill，定義咗：</p>
+<ul>
+  <li><strong>Style guide</strong>：用正體中文、口語廣東話、2-4 句、唔可以政治</li>
+  <li><strong>Recipients</strong>：自己同 老婆</li>
+  <li><strong>Send command</strong>：<code>wacli send text --to "..." --message "..."</code></li>
+</ul>
+
+<hr>
+
+<h2>Cron Job 設定</h2>
+
+<pre><code>Name:      Daily Joke to Family
+Schedule:  0 21 * * *     (每晚 9pm HKT)
+Profile:   joke-master
+Skills:    [daily-joke]
+Type:      LLM-driven</code></pre>
+
+<p>個 job 係 LLM-driven，即係每次觸發都會：</p>
+<ol>
+  <li>載入 <code>joke-master</code> profile（SOUL.md 決定 personality）</li>
+  <li>載入 <code>daily-joke</code> skill（domain knowledge）</li>
+  <li>Agent 生成一個原創笑話</li>
+  <li>用 wacli send 俾自己同 老婆</li>
+  <li>Report 結果</li>
+</ol>
+
+<hr>
+
+<h2>Debug 故事：Cron PATH 問題</h2>
+
+<p>最初 setup 嘅時候，有個 cron job 成日 fail。Error log 顯示 script 行唔到，但手動行又完全冇問題。</p>
+
+<p><strong>Root Cause：</strong> Windows 嘅 cron scheduler 係 native process，行嘅時候 <strong>冇 load bash profile</strong>，所以 <code>PATH</code> 入面搵唔到 <code>node</code> executable。但手動行嘅 terminal 係 git-bash，有完整 PATH。</p>
+
+<p><strong>Solution：</strong></p>
+<ul>
+  <li>將原本嘅 <code>.sh</code> script 改做 <code>.py</code>（Python）</li>
+  <li>因為 <code>python</code> 喺 Windows PATH 上，cron 可以直接執行</li>
+  <li>用 <code>subprocess.run</code> 去 call <code>wacli</code></li>
+</ul>
+
+<p>呢個 lesson learned 之後都 apply 咗落其他 cron job 度。</p>
+
+<hr>
+
+<h2>安全措施</h2>
+
+<p>一個好重要嘅 rule：<strong>testing 時永遠 send 俾自己，唔可以亂 send 俾屋企人</strong>。呢個已經寫咗落 skill 嘅 safety rule 度，防止意外。</p>
+
+<hr>
+
+<h2>心得同下一步</h2>
+
+<h3>學到嘅嘢</h3>
+<ol>
+  <li><strong>Profile + Skill 分層</strong>：SOUL.md 管 personality，SKILL.md 管 domain knowledge，清晰分離</li>
+  <li><strong>Cron 環境差異</strong>：Windows cron 同 interactive shell PATH 唔同，係常見陷阱</li>
+  <li><strong>POC-first 流程</strong>：先 manual test → one-shot cron 俾自己 → 先 deploy 俾 production</li>
+</ol>
+
+<h3>下一步想做</h3>
+<ul>
+  <li>整合 multi-agent：一個 agent 生成笑話，另一個 agent review 質素</li>
+  <li>加入 feedback loop：問 老婆 個笑話好唔好笑，用嚟改善 quality</li>
+  <li>擴展到其他 cron task：例如每日新聞摘要、股市提醒</li>
+</ul>
+
+<hr>
+
+<div class="footer">
+  用 Hermes Agent + wacli，每日一個笑話自動送到屋企人手機，係一件幾有滿足感嘅事 😄
+</div>
+
+</div>
+</body>
+</html>
