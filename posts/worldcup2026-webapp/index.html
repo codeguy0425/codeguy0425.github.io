@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用 OpenCode 整咗個 World Cup 2026 網站 — 數據來源同自動更新嘅實戰心得</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-brand">Codeguy Blog</a>
+  <div>
+    <a href="/about.html">關於</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<h1>用 OpenCode 整咗個 World Cup 2026 網站 — 數據來源同自動更新嘅實戰心得</h1>
+
+<div class="meta">
+  2026-06-15 &nbsp;·&nbsp; <span>OpenCode</span><span>WorldCup</span><span>React</span><span>TypeScript</span><span>DataPipeline</span><span>Automation</span>
+</div>
+
+<hr>
+
+<h2>前言：點解要整呢個 Project？</h2>
+
+<p>世界盃2026就嚟開波（其實已經開咗），作為一個球迷＋AI/automation 愛好者，自然想整返個 website 嚟 track 賽果、積分榜、淘汰賽走勢。與其用坊間嘅 app，不如自己起一個仲可以玩下新 tech。</p>
+
+<p>今次我決定用 <strong>OpenCode</strong>（一個 AI-assisted coding CLI tool）嚟開發，成個 project 由零開始，主要想做幾樣嘢：</p>
+
+<ol>
+  <li>一個 mobile-friendly 嘅 web app，香港時間顯示</li>
+  <li><strong>自動更新</strong>比數，唔使 manual update</li>
+  <li><strong>中英雙語</strong>，方便自己同朋友睇</li>
+  <li>整合 <strong>ViuTV 免費直播</strong>時間表</li>
+</ol>
+
+<p>結果用咗大概一個 weekend 就搞掂咗，而家個 site 行緊喺 GitHub Pages，每日自動更新賽果。</p>
+
+<hr>
+
+<h2>系統架構概覽</h2>
+
+<p>成個 stack 好簡單：</p>
+
+<pre><code>Frontend: React 19 + TypeScript + Tailwind CSS 4 + Vite
+Hosting:  GitHub Pages (via GitHub Actions)
+Data:     openfootball JSON API (static import)
+CI:       npm run update-scores → build → deploy</code></pre>
+
+<p>全部 code 喺一個 repo 入面，data 係 static typed，唔使 backend server。</p>
+
+<pre><code>worldcup2026/
+├── src/
+│   ├── data/
+│   │   ├── matches.ts      ← 全部賽程數據（+ 賽果）
+│   │   ├── teams.ts        ← 48支球隊資料
+│   │   ├── groups.ts       ← 12組分組
+│   │   ├── stadiums.ts     ← 16個球場
+│   │   └── viutv.ts        ← ViuTV 25場直播
+│   ├── utils/
+│   │   └── standings.ts    ← 自己計積分榜
+│   └── pages/              ← React pages
+├── scripts/
+│   ├── update-scores.mjs   ← 自動更新比數
+│   ├── gen-sitemap.mjs     ← SEO sitemap
+│   ├── calendar-viutv.mjs  ← Google Calendar sync
+│   └── shared-data.mjs     ← 共用常數
+└── .github/workflows/
+    └── deploy.yml          ← CI/CD pipeline</code></pre>
+
+<hr>
+
+<h2>數據從邊度嚟？openfootball</h2>
+
+<p>最關鍵嘅問題係：<strong>世界盃數據去邊度搵？</strong></p>
+
+<p>好彩有人整咗個 <a href="https://github.com/openfootball/worldcup.json">openfootball/worldcup.json</a> — 一個 open-source 嘅足球數據庫，以 JSON 格式提供世界盃賽程同賽果。</p>
+
+<p>用法超簡單：</p>
+
+<pre><code class="language-javascript">const OPENFOOTBALL_URL = 'https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json'
+
+const res = await fetch(OPENFOOTBALL_URL)
+const data = await res.json()</code></pre>
+
+<p>呢個 JSON 包含咗全部 104 場賽事嘅：</p>
+<ul>
+  <li>日期、時間</li>
+  <li>對賽隊伍</li>
+  <li>賽果（半場／全場）</li>
+  <li>入球球員同分鐘數</li>
+  <li>場地</li>
+</ul>
+
+<p>我嘅策略係：<strong>將 openfootball 嘅 data 轉換成 TypeScript source code</strong>，直接 <code>import</code> 入個 app 度。咁樣做有好處：</p>
+<ul>
+  <li>完全 type-safe</li>
+  <li>唔使 runtime API call（無 loading state）</li>
+  <li>可以 static deploy 去 GitHub Pages</li>
+</ul>
+
+<p>個 <code>update-scores.mjs</code> script 每隔一段時間就 fetch 一次 openfootball，parse 最新賽果，然後喺 CI build 嘅時候自動 update <code>src/data/matches.ts</code>。</p>
+
+<hr>
+
+<h2>最大嘅挑戰：Group Standings 要自己計</h2>
+
+<p>呢個係成個 project 最有趣嘅部分。</p>
+
+<p>openfootball 嘅 JSON 雖然有齊賽果，但係佢 <strong>無提供 group standings（積分榜）</strong>。即係話，佢唔會俾你「Group A 嘅排名係 Mexico 6分、Korea 3分...」呢類 data。</p>
+
+<p>所以我必須自己寫一個 <code>computeStandings()</code> function：</p>
+
+<pre><code class="language-typescript">export function computeStandings(group: string, matches: Match[]): GroupStanding[] {
+  const teamIds = new Set&lt;string&gt;()
+  const groupMatches = matches.filter(m =&gt;
+    m.stage === 'group' && m.group === group && m.score1 !== undefined
+  )
+
+  // Collect all teams in this group
+  for (const m of groupMatches) {
+    teamIds.add(m.team1Id)
+    teamIds.add(m.team2Id)
+  }
+
+  // Initialise standings
+  const standings = new Map&lt;string, GroupStanding&gt;()
+  for (const id of teamIds) {
+    standings.set(id, {
+      team: id, played: 0, won: 0, drawn: 0, lost: 0,
+      gf: 0, ga: 0, gd: 0, pts: 0, form: []
+    })
+  }
+
+  // Compute from match results
+  for (const m of groupMatches) {
+    const s1 = standings.get(m.team1Id)!
+    const s2 = standings.get(m.team2Id)!
+    s1.played++; s2.played++
+    s1.gf += m.score1!; s1.ga += m.score2!
+    s2.gf += m.score2!; s2.ga += m.score1!
+
+    if (m.score1 &gt; m.score2) {
+      s1.pts += 3; s1.form.push('W'); s2.form.push('L')
+    } else if (m.score1 &lt; m.score2) {
+      s2.pts += 3; s2.form.push('W'); s1.form.push('L')
+    } else {
+      s1.pts += 1; s2.pts += 1
+      s1.form.push('D'); s2.form.push('D')
+    }
+  }
+
+  // Sort: points → GD → GF → alphabetical
+  return Array.from(standings.values())
+    .map(s =&gt; ({ ...s, gd: s.gf - s.ga }))
+    .sort((a, b) =&gt; {
+      if (b.pts !== a.pts) return b.pts - a.pts
+      if (b.gd !== a.gd) return b.gd - a.gd
+      if (b.gf !== a.gf) return b.gf - a.gf
+      return a.team.localeCompare(b.team)
+    })
+}</code></pre>
+
+<p>成個邏輯其實唔複雜：</p>
+<ol>
+  <li>搵晒某組嘅所有已完場比賽</li>
+  <li>初始化每隊嘅記錄（賽、勝、和、負、入球、失球）</li>
+  <li>逐場計分（贏3分、和1分、輸0分）</li>
+  <li>Sort：先比分數，再比得失球差，再比入球數</li>
+</ol>
+
+<p><strong>好玩在於：</strong> 因為 openfootball 無提供 standings，迫住你要自己寫 business logic，反而令個 codebase 更完整，亦都更理解 FIFA 嘅計分規則。</p>
+
+<p>仲有一個小問題：每組有4隊，如果某隊仲未踢過任何比賽，openfootball 嘅 data 唔會包括佢。所以我需要確保 standings table 永遠顯示晒4隊，就算未開波都要 show 0分：</p>
+
+<pre><code class="language-typescript">// Fill in teams that haven't played yet
+for (const tid of groupInfo.teams) {
+  if (!computedIds.has(team?.name || tid)) {
+    computed.push({
+      team: team?.name || tid,
+      played: 0, won: 0, drawn: 0, lost: 0,
+      gf: 0, ga: 0, gd: 0, pts: 0, form: []
+    })
+  }
+}</code></pre>
+
+<hr>
+
+<h2>自動更新比分嘅 CI Pipeline</h2>
+
+<p>世界盃係進行中嘅賽事，每日都有新賽果。如果每次都要手動更新就太麻煩啦。</p>
+
+<p>所以我 set 咗個 <strong>GitHub Actions CI/CD pipeline</strong>，每次 push 去 master 嘅時候自動做三件事：</p>
+
+<pre><code class="language-yaml">steps:
+  - uses: actions/checkout@v4
+  - uses: actions/setup-node@v4
+  - run: npm ci
+  - run: npm run update-scores    # 1️⃣ Fetch latest scores
+  - run: node scripts/gen-sitemap.mjs  # 2️⃣ Regenerate sitemap
+  - run: npm run build            # 3️⃣ Build &amp; deploy</code></pre>
+
+<p>重點係 <code>npm run update-scores</code> — 呢個 script 會：</p>
+
+<ol>
+  <li>Fetch openfootball JSON</li>
+  <li>逐場比賽 match 返 <code>src/data/matches.ts</code> 嘅 entry（by match number 或者 by team pair）</li>
+  <li>如果有新賽果，就 update <code>score1</code> / <code>score2</code> 同埋入球資料</li>
+  <li>寫返落個 TypeScript file</li>
+</ol>
+
+<pre><code class="language-javascript">// Simplified version of update-scores.mjs
+for (let i = 0; i &lt; lines.length; i++) {
+  const idMatch = lines[i].match(/ id: (\d+),/)
+  if (!idMatch) continue
+
+  const ofm = byNum.get(parseInt(idMatch[1]))
+  if (!ofm || !ofm.score?.ft) continue
+
+  // Update score
+  lines[i] = lines[i].replace(
+    /score1: \d+, score2: \d+/g,
+    `score1: ${ofm.score.ft[0]}, score2: ${ofm.score.ft[1]}`
+  )
+
+  // Update goal details
+  if ('goals1' in ofm || 'goals2' in ofm) {
+    const goalsStr = buildGoalsString(ofm, team1Id, team2Id)
+    lines[i] = lines[i].replace(/goals: \[[^\]]*\]/, goalsStr)
+  }
+}</code></pre>
+
+<p>每次 CI build 嘅時候都 fetch 最新賽果，變相做到 <strong>每日自動更新</strong>。仲有 <code>workflow_dispatch</code> 可以手動 trigger。</p>
+
+<hr>
+
+<h2>Helper Scripts 嘅 Automation</h2>
+
+<p>除咗賽果更新，仲有幾個 helper scripts 令成個 project 更完整：</p>
+
+<h3>sitemap 自動生成</h3>
+
+<p>用 <code>gen-sitemap.mjs</code> 自動生成 <code>sitemap.xml</code>，涵蓋所有頁面、分組頁、球隊頁，幫手 SEO：</p>
+
+<pre><code class="language-javascript">const base = 'https://codeguy0425.github.io/worldcup2026'
+const pages = ['/', '/fixtures', '/groups', '/teams', '/stadiums', '/bracket', '/viutv']
+
+// Add all 12 group pages
+for (let i = 0; i &lt; 12; i++) {
+  xml += url(`/groups/${String.fromCharCode(65 + i)}`, '0.6', 'weekly')
+}
+// Add all 48 team pages
+for (const t of teams) {
+  xml += url(`/teams/${encodeURIComponent(t.name)}`, '0.5', 'monthly')
+}</code></pre>
+
+<h3>ViuTV Google Calendar Sync</h3>
+
+<p>仲有一個 <code>calendar-viutv.mjs</code> script，會自動將 ViuTV 免費直播嘅25場賽事 sync 去 Google Calendar，用 <code>gws</code> CLI 工具：</p>
+
+<pre><code>🇲🇽 Mexico vs 🇿🇦 South Africa (World Cup 2026)
+🏟️ Estadio Azteca, Mexico City
+📺 小組賽A組 · ViuTV 99台 免費直播</code></pre>
+
+<hr>
+
+<h2>總結同心得</h2>
+
+<p>成個 project 最深刻嘅體會有幾點：</p>
+
+<ol>
+  <li><strong>OpenCode + AI-assisted coding 真係好快</strong> — 由 concept 到 deploy 唔使一個 weekend，尤其係 boilerplate 同 UI 嘅 generation 速度驚人</li>
+  <li><strong>openfootball 係個好 source，但 data 唔 complete</strong> — 有賽果但無 standings，迫你寫 business logic 反而學到更多</li>
+  <li><strong>Static data + CI update 係個好 pattern</strong> — 唔需要 backend server，唔需要 database，靠 CI 每日更新 static files 已經做到 dynamic 效果</li>
+  <li><strong>GitHub Actions free tier 已經夠做</strong> — 每日自動 fetch + build + deploy，完全零成本</li>
+</ol>
+
+<p>個 site 而家喺度：<a href="https://codeguy0425.github.io/worldcup2026"><strong>codeguy0425.github.io/worldcup2026</strong></a></p>
+
+<p>世界盃仲進行緊，每日都有新賽果，睇住個 site 自動更新嘅感覺都幾爽。⚽</p>
+
+<hr>
+
+<p><em>資料來源：openfootball/worldcup.json · 與 FIFA 無關</em></p>
+
+<div class="footer">
+  &copy; 2026 Codeguy Blog
+</div>
+
+</div>
+
+</body>
+</html>
