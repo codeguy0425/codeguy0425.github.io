@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用 Hermes Agent + HyperFrames 自動生成 YouTube Shorts — Codeguy Blog</title>
+<link rel="stylesheet" href="/assets/style.css">
+<style>
+  pre { background: #1e293b; padding: 20px; border-radius: 8px; overflow-x: auto; border: 1px solid #334155; font-size: 0.85rem; line-height: 1.6; }
+  code { background: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; color: #fbbf24; }
+  pre code { background: none; padding: 0; color: inherit; }
+  blockquote { border-left: 3px solid #fbbf24; padding: 12px 20px; margin: 20px 0; background: #1a2332; border-radius: 0 8px 8px 0; color: #cbd5e1; }
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 0.9rem; }
+  th, td { border: 1px solid #334155; padding: 10px 14px; text-align: left; }
+  th { background: #1e293b; color: #fbbf24; font-weight: 600; }
+  tr:nth-child(even) td { background: #1a2332; }
+  hr { border: none; border-top: 1px solid #334155; margin: 40px 0; }
+  h2 { border-left: 3px solid #fbbf24; padding-left: 14px; margin: 36px 0 16px; color: #f1f5f9; }
+  h3 { color: #e2e8f0; margin: 28px 0 12px; }
+  ul, ol { padding-left: 24px; margin: 12px 0; }
+  li { margin: 6px 0; }
+  .tag { display: inline-block; background: #fbbf24; color: #0f172a; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .meta { color: #64748b; font-size: 0.85rem; margin-bottom: 30px; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-brand">Codeguy Blog</a>
+  <div>
+    <a href="/about.html">關於</a>
+  </div>
+</nav>
+
+<div class="container">
+
+  <h1>用 Hermes Agent + HyperFrames 自動生成 YouTube Shorts</h1>
+  <div class="meta">2026-06-20 · <span class="tag">Hermes Agent</span> <span class="tag">HyperFrames</span> <span class="tag">Shorts</span></div>
+
+  <blockquote>一個 AI Agent 由寫 joke 到出片嘅完整 workflow</blockquote>
+
+  <hr>
+
+  <h2>前言：點解要用 Agent 整 Shorts</h2>
+
+  <p>每日一條 YouTube Shorts，內容係廣東話笑話。最初做法係：寫 script → 人手錄音 → 用剪片軟件拼湊 → export → upload。一條片閒閒地 1-2 個鐘。</p>
+
+  <p>後來諗：既然 joke 係 text，TTS 可以自動生成，影片 render 可以用 HTML，成個流程其實可以 automates 俾 AI Agent 做。</p>
+
+  <p>結果而家嘅 workflow 係：</p>
+
+  <blockquote>諗個 joke → 同 agent 講 → 等幾分鐘 → 出片</blockquote>
+
+  <p>成個過程 Agent 幫手做晒 heavy lifting，人只需要做 decision making。</p>
+
+  <hr>
+
+  <h2>Toolchain</h2>
+
+  <table>
+    <tr><th>Tool</th><th>用途</th></tr>
+    <tr><td><strong>Hermes Agent</strong></td><td>Agent 框架，串連所有工具</td></tr>
+    <tr><td><strong>HyperFrames</strong></td><td>HTML-native 影片 render 引擎，寫 HTML = 出片</td></tr>
+    <tr><td><strong>edge-tts</strong></td><td>Microsoft Edge TTS，支援廣東話多種 voice</td></tr>
+    <tr><td><strong>ffmpeg</strong></td><td>多 track audio 合成、volume 調整、trim</td></tr>
+  </table>
+
+  <p>Why HyperFrames？</p>
+
+  <p>因為 HyperFrames 用 HTML + GSAP 定義畫面，對 AI Agent 嚟講係 natural format。Agent 寫 HTML 遠比操作 Premiere Pro / DaVinci 容易。Render 出嚟嘅係 deterministic MP4 — 同一 input 永遠出同一 output，啱晒 automation。</p>
+
+  <hr>
+
+  <h2>工作流（以 Daily Joke Video 為例）</h2>
+
+  <h3>Step 1：Agent 生成對話</h3>
+
+  <p>User 俾一個 joke concept，例如：</p>
+
+  <blockquote>教練話當最後一場踢，球員即刻紅牌</blockquote>
+
+  <p>Agent 會 rewrite 做 natural 對話：</p>
+
+  <pre><code>🧒 仔：爸爸，教練話要當每場比賽係人生最後一場咁踢，你覺得有冇道理？
+👨 爸爸：有道理喎，所以個球員第一場就紅牌出場。</code></pre>
+
+  <p>User approve 先 proceed。</p>
+
+  <h3>Step 2：TTS 生成</h3>
+
+  <p>用 edge-tts 生成多角色語音：</p>
+
+  <pre><code>edge-tts --voice zh-HK-HiuMaanNeural --text "..." --write-media output.wav
+edge-tts --voice zh-HK-WanLungNeural --text "..." --write-media output.wav
+edge-tts --voice zh-HK-HiuGaaiNeural --text "..." --write-media output.wav</code></pre>
+
+  <p>角色 vs Voice mapping 固定：</p>
+
+  <table>
+    <tr><th>角色</th><th>Voice</th><th>風格</th></tr>
+    <tr><td>🧒 仔 / 丙朗</td><td>HiuMaanNeural</td><td>女聲，輕柔偏嫩</td></tr>
+    <tr><td>👨 爸爸 / 教練</td><td>WanLungNeural</td><td>男聲，沉穩</td></tr>
+    <tr><td>📖 旁白</td><td>HiuGaaiNeural</td><td>女聲，自然清晰</td></tr>
+  </table>
+
+  <p><strong>Pitfall：</strong> Edge TTS 太短嘅句子（&lt;15 字）有時會 fail，keep 返每句 20+ 字。</p>
+
+  <h3>Step 3：HTML Bubble Composition</h3>
+
+  <p>每句對話用一個 <code>&lt;div class="bubble"&gt;</code> 表示，顏色分角色：</p>
+
+  <ul>
+    <li>🟤 灰色 = 旁白</li>
+    <li>🔵 藍色 = 教練 / 爸爸</li>
+    <li>🟠 桃色 = 仔 / 丙朗</li>
+  </ul>
+
+  <pre><code>&lt;div id="bubble-n1" class="bubble bubble-narrator clip" data-start="4" data-duration="3" data-track-index="12"&gt;
+  📖 教練同丙朗講⋯
+&lt;/div&gt;</code></pre>
+
+  <p>一句跟一句模式 — 上一句完 immediately 出下一句，唔 fade，唔 overlap。</p>
+
+  <h3>Step 4：HyperFrames Render</h3>
+
+  <pre><code>npm run render</code></pre>
+
+  <p>Render 出 silent video（~30-60s, 1-2MB），之後再 merge audio。</p>
+
+  <h3>Step 5：ffmpeg Audio Merge</h3>
+
+  <p>將多個 TTS + bgm + sfx 用 adelay 同 amix 合成：</p>
+
+  <pre><code>ffmpeg -i video.mp4 \
+  -i tts-1.wav -i tts-2.wav ... \
+  -i bgm.mp3 -i laugh.wav -i credit.wav \
+  -filter_complex "
+    [1:a]adelay=4000|4000,apad=whole_dur=33[t1];
+    ...
+    [8:a]volume=1.8,atrim=end=28.5,apad=whole_dur=33[bgm];
+    ...
+    [t1]...[bgm]...[credit]amix=inputs=10:duration=first[audio]
+  " \
+  -map 0:v -map "[audio]" final.mp4</code></pre>
+
+  <p>Total process：<strong>~5-10 分鐘</strong>一條片。</p>
+
+  <hr>
+
+  <h2>可重用框架</h2>
+
+  <p>每一集嘅 template 係一樣嘅，只需要改 3 樣嘢：</p>
+
+  <table>
+    <tr><th>要改嘅</th><th>位置</th></tr>
+    <tr><td>🗣️ TTS files</td><td><code>src/audio/tts/tts-epN-*.wav</code></td></tr>
+    <tr><td>📝 Bubble text</td><td><code>index.html</code> 嘅 bubble divs</td></tr>
+    <tr><td>⏱️ Timings</td><td>HTML data-start/data-duration + ffmpeg delay</td></tr>
+  </table>
+
+  <p><strong>Template Structure：</strong></p>
+
+  <pre><code>daily-joke-video/
+├── index.html              ← 主 composition（改 bubble text + timing）
+├── src/audio/
+│   ├── tts/                ← TTS files（換 joke 時 regenerate）
+│   ├── bgm/                ← BGM（重用）
+│   └── sfx/                ← Sound effects（重用）
+└── renders/
+    └── epN-dual-voice-final.mp4  ← Output</code></pre>
+
+  <p><strong>每一集新 joke 嘅 workflow：</strong></p>
+
+  <ol>
+    <li>User approve script</li>
+    <li>Agent regenerate TTS（3 個 voice x 3-6 句）</li>
+    <li>Agent copy template index.html，改 bubble text + timing</li>
+    <li>Agent render + merge</li>
+    <li>User review</li>
+  </ol>
+
+  <p><strong>即係話：</strong> 第時有新 joke，我只需要一句：</p>
+
+  <blockquote>用呢個 joke 做 EP4</blockquote>
+
+  <p>Agent 就自動行晒成個 pipeline。</p>
+
+  <hr>
+
+  <h2>人機協作流程</h2>
+
+  <p>邊啲位 Agent 做，邊啲位人做：</p>
+
+  <pre><code>🧑 User 俾 joke concept
+    │
+    ▼
+🤖 Agent rewrite 做對話腳本
+    │
+    ▼
+🧑 User approve / 改 script
+    │
+    ▼
+🤖 Agent generate TTS + HTML + render + merge
+    │
+    ▼
+🧑 User review final video
+    │
+    🔄 如果唔滿意 → 改一句話 → Agent 重新 generate + rerender</code></pre>
+
+  <p><strong>Agent 做嘅：</strong></p>
+  <ul>
+    <li>TTS 生成（3 voice x 6 files）</li>
+    <li>HTML bubble composition</li>
+    <li>GSAP timeline 計算 timing</li>
+    <li>HyperFrames render</li>
+    <li>ffmpeg 多 track audio merge</li>
+    <li>重複 rerender 直到滿意</li>
+  </ul>
+
+  <p><strong>人做嘅：</strong></p>
+  <ul>
+    <li>Joke 構思同方向</li>
+    <li>Script 審批（地獄唔地獄？夠唔夠好笑？）</li>
+    <li>Timing 調整指示</li>
+    <li>Final output 驗收</li>
+  </ul>
+
+  <p><strong>Key insight：</strong> 人負責 creativity + decision making，Agent 負責 execution + iteration。呢個分工最有效率。</p>
+
+  <hr>
+
+  <h2>角色聲線配搭</h2>
+
+  <p>三把廣東話 voice 嘅揀選原因：</p>
+
+  <table>
+    <tr><th>Voice</th><th>角色</th><th>揀選原因</th></tr>
+    <tr><td><strong>HiuMaanNeural</strong> 🧒</td><td>仔 / 丙朗</td><td>女聲偏柔，扮細路自然，同爸爸聲有明顯對比</td></tr>
+    <tr><td><strong>WanLungNeural</strong> 👨</td><td>爸爸 / 教練</td><td>男聲沉穩，適合「爸爸式」地獄答案</td></tr>
+    <tr><td><strong>HiuGaaiNeural</strong> 📖</td><td>旁白</td><td>女聲清晰中性，適合敘事，同 HiuMaan 有分別唔會混淆</td></tr>
+  </table>
+
+  <p>聲線配搭嘅原則：</p>
+  <ul>
+    <li>每個角色要 <strong>auditorily distinct</strong> — 觀眾一聽就知邊個講嘢</li>
+    <li>父子對話用 gender contrast（男女聲），自然分到</li>
+    <li>旁白用第三把聲，同主角色分開</li>
+  </ul>
+
+  <p>Edge TTS 雖然唔係最自然（對比 ElevenLabs / OpenAI TTS），但勝在免費、速度快、batch generate 冇 quota 限制，啱晒 rapid iteration 嘅 workflow。</p>
+
+  <hr>
+
+  <h2>AI Agent x 內容創作</h2>
+
+  <p>Agent 大幅降低咗影片製作嘅門檻：</p>
+
+  <ul>
+    <li><strong>傳統剪片：</strong> 錄音 → 剪 audio → 排版 → 加動畫 → export → 1-2 小時</li>
+    <li><strong>Agent workflow：</strong> 諗 joke → approve → agent 做晒 → 5-10 分鐘</li>
+  </ul>
+
+  <p>以往拍片要識剪片軟件、要識 timing、要識 export settings。而家只需要識 <strong>「同 agent 講想做咩」</strong>。</p>
+
+  <h3>未來改進方向</h3>
+
+  <p>Agent-based 影片製作仲有好大空間：</p>
+
+  <table>
+    <tr><th>方向</th><th>而家</th><th>未來</th></tr>
+    <tr><td>🎤 <strong>TTS 質素</strong></td><td>Edge TTS（免費但機械感）</td><td>OpenAI TTS / ElevenLabs 更自然語調</td></tr>
+    <tr><td>🎬 <strong>動畫</strong></td><td>靜態 bubble + GSAP</td><td>Remotion / Motion 動畫角色、場景轉換</td></tr>
+    <tr><td>🎵 <strong>音效</strong></td><td>手動揀 sfx</td><td>Agent auto-generate bgm + 配樂</td></tr>
+    <tr><td>🤖 <strong>Publish</strong></td><td>人手 upload YouTube</td><td>Agent auto-publish + write description</td></tr>
+    <tr><td>📱 <strong>Multi-platform</strong></td><td>淨係 YouTube Shorts</td><td>同一內容 auto-output Shorts + Reels + TikTok</td></tr>
+    <tr><td>🌐 <strong>多語言</strong></td><td>淨係廣東話</td><td>Agent translate + 用對應 TTS 出 multilingual version</td></tr>
+  </table>
+
+  <p>AI Agent 唔係取代創作者，而係將 execution time 由 hour 級降到 minute 級，令人可以專注喺創意本身。</p>
+
+  <blockquote>最好嘅 content tool 係你唔覺得自己用緊 tool。Agent 就係呢個 direction。</blockquote>
+
+  <hr>
+
+  <div class="footer">
+    &copy; 2026 Codeguy Blog &middot; built with ♥
+  </div>
+
+</div>
+
+</body>
+</html>
