@@ -43,9 +43,13 @@
 
   <h2>前言：點解要用 Agent 整 Shorts</h2>
 
-  <p>每日一條 YouTube Shorts，內容係廣東話笑話。最初做法係：寫 script → 人手錄音 → 用剪片軟件拼湊 → export → upload。一條片閒閒地 1-2 個鐘。</p>
+  <p>最近開始整 YouTube Shorts，每日一條廣東話笑話片。</p>
 
-  <p>後來諗：既然 joke 係 text，TTS 可以自動生成，影片 render 可以用 HTML，成個流程其實可以 automates 俾 AI Agent 做。</p>
+  <p>最初做法係：寫 script → 人手錄音 → 用剪片軟件拼湊 → export → upload。一條片閒閒地 1-2 個鐘。</p>
+
+  <p>做咗幾條之後開始諗成個 workflow，發現好多 steps 都係重複嘅：錄音、排版、export、merge audio。既然係重複，點解唔俾 AI Agent 做？</p>
+
+  <p>於是開始學點樣用 Hermes Agent 去 automate 呢啲 manual steps — TTS 自動生成、HTML 自動排版、ffmpeg 自動合成。由一開始「做一條片」變成「教 agent 做一條片」。</p>
 
   <p>結果而家嘅 workflow 係：</p>
 
