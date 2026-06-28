@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codex CLI + Bridge：免費同收費 Model 隨意切換</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <style>
+    /* Architecture diagram */
+    .arch {
+      background: #0c1929;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 24px;
+      margin: 20px 0;
+      font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #94a3b8;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 0.9rem;
+    }
+    th {
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #1e293b;
+      color: #cbd5e1;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #131c31; }
+
+    /* Setup prompt blockquote has nested content */
+    blockquote h2 {
+      font-size: 1.15rem;
+      margin-top: 0;
+    }
+    blockquote h3 {
+      font-size: 1rem;
+      margin: 20px 0 8px;
+      color: #e2e8f0;
+    }
+    blockquote ul, blockquote ol {
+      color: #94a3b8;
+    }
+    blockquote li {
+      margin-bottom: 4px;
+    }
+    blockquote code {
+      font-size: 0.82em;
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <a href="/" class="nav-brand">Codeguy Blog</a>
+    <div>
+      <a href="/">Home</a>
+      <a href="/about.html">About</a>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <h1>Codex CLI + Bridge：免費同收費 Model 隨意切換</h1>
+
+    <div class="meta">
+      2026-06-29
+      <span class="tag">Codex CLI</span>
+      <span class="tag">DeepSeek</span>
+      <span class="tag">OpenCode Zen</span>
+      <span class="tag">Bridge</span>
+      <span class="tag">Windows</span>
+    </div>
+
+    <hr>
+
+    <!-- 前言 -->
+    <h2>前言：點解要搞呢個 Setup</h2>
+
+    <p>OpenAI 嘅 Codex CLI 去到 v0.142+ 之後，<strong>淨係識講 Responses API</strong>（<code>POST /v1/responses</code>），唔再支援傳統嘅 Chat Completions API。</p>
+
+    <p>問題係：DeepSeek、OpenCode Zen 呢啲第三方 provider <strong>全部都係行 Chat Completions</strong>，兩邊 protocol 唔 compatible。</p>
+
+    <p>解決方法係起一個 <strong>local proxy bridge</strong> — 放喺 localhost:8787，幫 Codex 嘅 Responses API 翻譯做 upstream 嘅 Chat Completions。</p>
+
+    <p>而巧合嘅係，bridge config 可以同時定義多個 upstream provider，所以<strong>同一個 bridge 可以同時駁去 DeepSeek（收費）同 OpenCode Zen（免費）</strong>，淨係 model name 唔同就得。</p>
+
+    <hr>
+
+    <!-- Architecture -->
+    <h2>Architecture</h2>
+
+    <div class="arch">┌─────────────────┐     Responses API      ┌──────────────────┐     Chat Completions     ┌──────────────────────┐
+│   Codex CLI     │ ──── /v1/responses ──▶ │   Bridge         │ ──────────────────────▶ │  DeepSeek API (💰)  │
+│   (terminal)    │                        │   (port 8787)    │                         │  api.deepseek.com   │
+│                 │                        │                  │                         ├──────────────────────┤
+│  -p bridge      │                        │  config.yaml     │ ──────────────────────▶ │  OpenCode Zen (🆓)  │
+│                 │                        │  (routes by      │                         │  opencode.ai/zen    │
+│                 │                        │   model name)     │                         └──────────────────────┘
+└─────────────────┘                        └──────────────────┘</div>
+
+    <p><strong>重點：</strong> Codex 永遠只對 bridge 講 Responses API。Bridge 根據你 request 入面嘅 model name，自動 route 去對應嘅 upstream — 唔使改任何 Codex config。</p>
+
+    <table>
+      <thead>
+        <tr><th>Model</th><th>Provider</th><th>Cost</th><th>Context</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>deepseek-v4-flash</code></td><td>DeepSeek (經 bridge)</td><td>💰 Paid API</td><td>1M tokens</td></tr>
+        <tr><td><code>deepseek-v4-pro</code></td><td>DeepSeek (經 bridge)</td><td>💰 Paid API</td><td>1M tokens</td></tr>
+        <tr><td><code>big-pickle</code></td><td>OpenCode Zen (經 bridge)</td><td>🆓 Free</td><td>大 context</td></tr>
+      </tbody>
+    </table>
+
+    <hr>
+
+    <!-- 事前準備 -->
+    <h2>事前準備</h2>
+
+    <p>開始之前，你需要先裝好呢幾樣嘢：</p>
+
+    <table>
+      <thead>
+        <tr><th>必要工具</th><th>用途</th><th>點樣裝</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Codex CLI</strong></td><td>OpenAI 嘅 coding agent CLI</td><td><code>npm install -g @openai/codex</code> 或睇 <a href="https://github.com/openai/codex">官方 doc</a></td></tr>
+        <tr><td><strong>Go</strong></td><td>Build bridge binary</td><td><code>winget install GoLang.Go</code> 或 <a href="https://go.dev/dl/">golang.org</a></td></tr>
+        <tr><td><strong>Git</strong></td><td>Clone bridge source</td><td><code>winget install Git.Git</code></td></tr>
+        <tr><td><strong>API Key (DeepSeek)</strong></td><td>收費 model</td><td>去 <a href="https://platform.deepseek.com">platform.deepseek.com</a> 註冊攞 key</td></tr>
+        <tr><td><strong>API Key (OpenCode Zen)</strong></td><td>免費 model</td><td>去 <a href="https://opencode.ai">opencode.ai</a> 註冊攞 key</td></tr>
+      </tbody>
+    </table>
+
+    <p>建議將 API key set 做 Windows user environment variable，咁就唔使直接寫入 config file：</p>
+
+    <pre><code>setx DEEPSEEK_API_KEY "***"
+setx OPENCODE_ZEN_API_KEY "your-zen-key-here"</code></pre>
+
+    <p>Set 完要 <strong>重新開 terminal</strong> 先生效。</p>
+
+    <hr>
+
+    <!-- 俾 AI Agent 嘅 Setup Prompt -->
+    <h2>俾 AI Agent 嘅 Setup Prompt</h2>
+
+    <p>如果你想搵 AI agent 幫你做晒成個 setup，可以直接 copy 呢段 prompt 俾佢：</p>
+
+    <blockquote>
+      <h2>Task: Set up Codex CLI to use DeepSeek &amp; OpenCode Zen via a local bridge</h2>
+
+      <h3>Prerequisites already installed</h3>
+      <ul>
+        <li>Codex CLI</li>
+        <li>Go</li>
+        <li>Git</li>
+        <li>API keys set as env vars: <code>DEEPSEEK_API_KEY</code>, <code>OPENCODE_ZEN_API_KEY</code></li>
+      </ul>
+
+      <h3>Steps</h3>
+      <ol>
+        <li><strong>Clone &amp; build the bridge</strong>
+          <pre><code>git clone https://github.com/hyq1995/Codex-Bridge-Deepseek.git ~/dev/codex-bridge/bridge
+cd ~/dev/codex-bridge/bridge
+go build -o ../cli-proxy-api.exe .</code></pre>
+        </li>
+        <li><strong>Create bridge config</strong> at <code>~/dev/codex-bridge/config.yaml</code>
+          <ul>
+            <li>host: 127.0.0.1, port: 8787</li>
+            <li>api-keys: ["local-bridge-key"]</li>
+            <li>Two <code>openai-compatibility</code> entries:
+              <ul>
+                <li>DeepSeek (paid): <code>https://api.deepseek.com/v1</code>, models: deepseek-v4-flash, deepseek-v4-pro</li>
+                <li>OpenCode Zen (free): <code>https://opencode.ai/zen/v1</code>, models: big-pickle</li>
+              </ul>
+            </li>
+            <li>Read API keys from env vars</li>
+          </ul>
+        </li>
+        <li><strong>Create bridge launcher</strong> at <code>~/dev/codex-bridge/start.bat</code> — point to the config and binary</li>
+        <li><strong>Configure Codex</strong> (<code>~/.codex/config.toml</code>)
+          <ul>
+            <li>Add <code>[model_providers.bridge]</code> pointing to <code>http://127.0.0.1:8787/v1</code></li>
+            <li>wire_api = "responses"</li>
+            <li>experimental_bearer_token = "local-bridge-key"</li>
+          </ul>
+        </li>
+        <li><strong>Create bridge profile</strong> at <code>~/.codex/bridge.config.toml</code>
+          <ul>
+            <li>model = "deepseek-v4-flash"</li>
+            <li>model_provider = "bridge"</li>
+          </ul>
+        </li>
+        <li><strong>Create a switch-model.py</strong> script to toggle between models
+          <ul>
+            <li>deepseek-v4-flash (paid) ↔ big-pickle (free)</li>
+            <li>Both use model_provider = "bridge"</li>
+          </ul>
+        </li>
+      </ol>
+
+      <h3>Verify</h3>
+      <ul>
+        <li>Start bridge: <code>~/dev/codex-bridge/start.bat</code></li>
+        <li>Run Codex: <code>codex -p bridge</code></li>
+        <li>Try: <code>codex -p bridge exec "say hello in Chinese" --skip-git-repo-check</code></li>
+      </ul>
+    </blockquote>
+
+    <p>呢個 prompt 唔係淨係俾 Codex 用 — 你可以直接貼俾<strong>任何 AI agent</strong>（Claude Code、Copilot、Gemini CLI、甚至你嘅 Hermes Agent），佢哋都睇得明逐 step 要做咩。重點係：</p>
+
+    <ul>
+      <li><strong>明確嘅 output 路徑</strong> — 所有檔案放晒喺 <code>~/dev/codex-bridge/</code>，整整齊齊</li>
+      <li><strong>API key 從 env var 讀取</strong> — 唔會寫死喺 file 入面，安全啲</li>
+      <li><strong>驗證步驟</strong> — 最後一步可以 test 下 bridge 係咪正常運作</li>
+    </ul>
+
+    <hr>
+
+    <!-- 個 Bridge 係咩 -->
+    <p>基於兩個 open-source project：</p>
+
+    <ul>
+      <li><a href="https://github.com/router-for-me/CLIProxyAPI"><strong>CLIProxyAPI</strong></a> — Router-For.ME 團隊寫嘅 Responses ↔ Chat Completions proxy</li>
+      <li><a href="https://github.com/hyq1995/Codex-Bridge-Deepseek"><strong>Codex-Bridge-Deepseek</strong></a> — 上面嘅 fork，加咗 DeepSeek 專用 fix（<code>reasoning_content</code> carry-over、parallel <code>tool_calls</code> merging、model name suffix parsing）</li>
+    </ul>
+
+    <p>Build 出嚟係一個 54MB Go binary：<code>cli-proxy-api.exe</code>。</p>
+
+    <hr>
+
+    <!-- File Layout -->
+    <h2>File Layout</h2>
+
+    <pre><code>~/dev/codex-bridge/
+├── cli-proxy-api.exe       ← 54MB bridge binary
+├── config.yaml             ← Bridge config（定義晒兩個 upstream）
+├── config.template.yaml    ← Template（安全可 share）
+├── start.bat               ← Windows launcher
+├── switch-model.py         ← 快速轉 model script
+└── bridge/                 ← Cloned source repo
+
+~/.codex/
+├── config.toml             ← Main Codex config
+└── bridge.config.toml      ← Bridge profile</code></pre>
+
+    <hr>
+
+    <!-- Bridge Config -->
+    <h2>Bridge Config — 一次過定義兩個 Provider</h2>
+
+    <pre><code>host: "127.0.0.1"
+port: 8787
+
+api-keys:
+  - "local-bridge-key"          # Codex authenticate bridge 用
+
+openai-compatibility:
+  - name: "deepseek"                                  # 💰 Paid
+    base-url: "https://api.deepseek.com/v1"
+    api-key-entries:
+      - api-key: ***    models:
+      - name: "deepseek-v4-flash"
+      - name: "deepseek-v4-pro"
+
+  - name: "opencode-zen"                              # 🆓 Free
+    base-url: "https://opencode.ai/zen/v1"
+    api-key-entries:
+      - api-key: ***    models:
+      - name: "big-pickle"</code></pre>
+
+    <p>同一段 config 入面定義晒兩個 provider，bridge 會根據 request 嘅 model name 自動 route 去對應嘅 upstream。</p>
+
+    <hr>
+
+    <!-- Codex Config -->
+    <h2>Codex Config — 永遠指去 Bridge</h2>
+
+    <p>Codex 嘅 config 定義一個叫 <code>bridge</code> 嘅 provider：</p>
+
+    <pre><code>[model_providers.bridge]
+name = "CodexBridge (DeepSeek local)"
+base_url = "http://127.0.0.1:8787/v1"
+wire_api = "responses"
+experimental_bearer_token = "local-bridge-key"</code></pre>
+
+    <p>Profile 就決定 default model：</p>
+
+    <pre><code># ~/.codex/bridge.config.toml
+model = "deepseek-v4-flash"
+model_provider = "bridge"</code></pre>
+
+    <p>注意 <code>model_provider</code> 永遠係 <code>"bridge"</code> — 因為無論用 DeepSeek 定 OpenCode Zen，Codex 都係同 bridge 講嘢。Bridge 睇返 <code>model</code> 個名去決定 forward 去邊個 upstream。</p>
+
+    <hr>
+
+    <!-- 快速轉 Model -->
+    <h2>快速轉 Model</h2>
+
+    <p>寫咗個 <code>switch-model.py</code> 嚟改 <code>config.toml</code> 嘅 model 同 model_provider：</p>
+
+    <pre><code>python switch-model.py          # 顯示選項
+python switch-model.py 0        # deepseek-v4-flash (💰 paid)
+python switch-model.py 1        # big-pickle (🆓 free)
+python switch-model.py deepseek # same
+python switch-model.py zen      # same</code></pre>
+
+    <p>實際上只係改 TOML 兩行：</p>
+
+    <pre><code>PRESETS = {
+    "bridge": {"model": "deepseek-v4-flash", "provider": "bridge"},   # 💰
+    "zen":    {"model": "big-pickle",        "provider": "bridge"},   # 🆓
+}</code></pre>
+
+    <p>留意兩個嘅 provider 都係 <code>"bridge"</code> — 證明兩個 model 都係經同一個 bridge 出去。</p>
+
+    <hr>
+
+    <!-- Daily Workflow -->
+    <h2>Daily Workflow</h2>
+
+    <h3>Terminal 1 — 起 Bridge</h3>
+    <pre><code>start ~/dev/codex-bridge/start.bat</code></pre>
+    <p>Keep 住個 window open。</p>
+
+    <h3>Terminal 2 — 行 Codex</h3>
+    <pre><code># Default model（deepseek-v4-flash）
+codex -p bridge
+
+# 想轉免費 model？
+python switch-model.py 1
+codex -p bridge</code></pre>
+
+    <p>Bridge 唔使 restart — 改 model name 即刻見效。</p>
+
+    <hr>
+
+    <!-- Troubleshooting -->
+    <h2>Troubleshooting 同 Pitfalls</h2>
+
+    <h3>Port conflict</h3>
+    <pre><code>netstat -ano | grep 8787
+taskkill //PID &lt;pid&gt; //F</code></pre>
+
+    <h3>API Key redaction</h3>
+    <p>Hermes Agent 嘅 security redactor 會 detect API key pattern。Workaround：用 env var 注入 key，唔好直接寫入 file。</p>
+
+    <h3>401 Invalid API Key</h3>
+    <p>Codex config 嘅 <code>experimental_bearer_token</code> 要同 bridge config 嘅 <code>api-keys</code> match。</p>
+
+    <h3>Harmless warning</h3>
+    <pre><code>Model metadata not found for "deepseek-v4-flash"</code></pre>
+    <p>Codex 冇第三方 model metadata，但唔影響功能。</p>
+
+    <hr>
+
+    <!-- 總結 -->
+    <h2>總結同心得</h2>
+
+    <p>成個 setup 最得意嘅地方係：<strong>一個 bridge，兩個 world</strong>。</p>
+
+    <table>
+      <thead>
+        <tr><th></th><th>DeepSeek V4 Flash</th><th>OpenCode Zen Big Pickle</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Cost</strong></td><td>💰 Paid (按量收費)</td><td>🆓 Free</td></tr>
+        <tr><td><strong>Context</strong></td><td>1M tokens</td><td>大 context</td></tr>
+        <tr><td><strong>Reasoning</strong></td><td>✅ 有 reasoning content</td><td>—</td></tr>
+        <tr><td><strong>經 Bridge</strong></td><td>✅</td><td>✅</td></tr>
+        <tr><td><strong>Switch 方法</strong></td><td><code>switch-model.py 0</code></td><td><code>switch-model.py 1</code></td></tr>
+      </tbody>
+    </table>
+
+    <p>Codex 嘅 Responses API limitation 本來係想鎖死你用 OpenAI models，但 community 寫咗 translation layer 之後，反而解鎖咗更大嘅靈活性 — 同一個 Codex 可以隨時 switch 去唔同嘅 provider，視乎 task 係要貴嘅 reasoning model 定係免費嘅 general model。</p>
+
+    <p>幾點 takeaways：</p>
+
+    <ol>
+      <li><strong>Protocol translation 係 powerful pattern</strong> — Responses API ↔ Chat Completions 只係一條 proxy 嘅距離</li>
+      <li><strong>Multi-provider 嘅 resilience</strong> — 一個 provider 有事可以即 switch 去另一個</li>
+      <li><strong>Windows 都搞得掂</strong> — 只係 path 同 process management 要多少少功夫</li>
+      <li><strong>免費 model 愈來愈好</strong> — big-pickle 日常 coding task 完全勝任，DeepSeek 留返要 reasoning 嘅時候先用</li>
+    </ol>
+
+    <p>下一步可能會試埋駁 local Ollama model（都係經 bridge），咁就 offline 都有得用 Codex。</p>
+
+    <hr>
+
+    <p style="color: #64748b; font-size: 0.85rem; font-style: italic;">（Disclaimer：呢篇係 personal setup notes，API keys 同真實 credentials 已 sanitize。）</p>
+
+    <div class="footer">
+      &copy; 2026 Codeguy Blog
+    </div>
+  </div>
+</body>
+</html>
