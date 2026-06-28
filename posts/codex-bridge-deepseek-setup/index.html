@@ -104,14 +104,9 @@
     <!-- Architecture -->
     <h2>Architecture</h2>
 
-    <div class="arch">┌─────────────────┐     Responses API      ┌──────────────────┐     Chat Completions     ┌──────────────────────┐
-│   Codex CLI     │ ──── /v1/responses ──▶ │   Bridge         │ ──────────────────────▶ │  DeepSeek API (💰)  │
-│   (terminal)    │                        │   (port 8787)    │                         │  api.deepseek.com   │
-│                 │                        │                  │                         ├──────────────────────┤
-│  -p bridge      │                        │  config.yaml     │ ──────────────────────▶ │  OpenCode Zen (🆓)  │
-│                 │                        │  (routes by      │                         │  opencode.ai/zen    │
-│                 │                        │   model name)     │                         └──────────────────────┘
-└─────────────────┘                        └──────────────────┘</div>
+    <p style="text-align:center; margin: 20px 0;">
+      <img src="flow-chart.png" alt="Codex Bridge Architecture Flowchart" style="max-width:100%; border-radius:8px; border:1px solid #1e293b;">
+    </p>
 
     <p><strong>重點：</strong> Codex 永遠只對 bridge 講 Responses API。Bridge 根據你 request 入面嘅 model name，自動 route 去對應嘅 upstream — 唔使改任何 Codex config。</p>
 
